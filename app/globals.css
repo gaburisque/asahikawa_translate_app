@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes ring-progress {
+  from { stroke-dashoffset: 283; }
+  to { stroke-dashoffset: 0; }
+}
+
+.recording-ring { animation: ring-progress 5s linear forwards; }
+
+@keyframes micro-pulse {
+  0% { transform: scale(1.000); filter: drop-shadow(0 6px 20px rgba(125,211,252,0.15)); }
+  50% { transform: scale(1.005); filter: drop-shadow(0 8px 26px rgba(125,211,252,0.25)); }
+  100% { transform: scale(1.000); filter: drop-shadow(0 6px 20px rgba(125,211,252,0.15)); }
+}
+
+.animate-micro-pulse { animation: micro-pulse 2.5s ease-in-out infinite; }
+
