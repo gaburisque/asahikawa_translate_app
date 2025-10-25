@@ -7,9 +7,6 @@ const outputSchema = z.object({ text: z.string(), lang: z.enum(['ja', 'en']) });
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'Server misconfigured: OPENAI_API_KEY not set' }, { status: 500 });
-    }
     const json = await req.json().catch(() => ({}));
     const parsed = inputSchema.safeParse(json);
     if (!parsed.success) {
@@ -17,6 +14,23 @@ export async function POST(req: NextRequest) {
     }
     const { text, lang } = parsed.data;
     const target = lang === 'ja' ? 'en' : 'ja';
+
+    // Demo mode: return mock translation
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo') {
+      const mockTranslations: Record<string, string> = {
+        'こんにちは、旭川へようこそ': 'Hello, welcome to Asahikawa',
+        'Hello, how are you?': 'こんにちは、お元気ですか？',
+        'Where is the zoo?': '動物園はどこですか？',
+        '旭山動物園はどこですか？': 'Where is Asahiyama Zoo?',
+      };
+      const translated = mockTranslations[text] || (target === 'ja' ? 'こんにちは' : 'Hello');
+      const data = { text: translated, lang: target } as const;
+      const out = outputSchema.safeParse(data);
+      if (!out.success) {
+        return NextResponse.json({ error: 'Validation error', details: out.error.format() }, { status: 400 });
+      }
+      return NextResponse.json(out.data, { headers: { 'Cache-Control': 'no-store' } });
+    }
 
     const openai = getOpenAIClient();
 

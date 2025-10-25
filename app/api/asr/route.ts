@@ -9,27 +9,45 @@ const outputSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'Server misconfigured: OPENAI_API_KEY not set' }, { status: 500 });
-    }
     const form = await req.formData();
     const audio = form.get('audio');
     if (!(audio instanceof File)) {
       return NextResponse.json({ error: 'audio is required' }, { status: 400 });
     }
 
+    // Validate audio file size (min 1KB to avoid empty/silent recordings)
+    if (audio.size < 1024) {
+      return NextResponse.json({ error: '録音データが小さすぎます。もう一度お試しください。' }, { status: 400 });
+    }
+
+    // Demo mode: return mock response
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo') {
+      const mockText = 'こんにちは、旭川へようこそ';
+      const result = { text: mockText, lang: 'ja' as const };
+      const parsed = outputSchema.safeParse(result);
+      if (!parsed.success) {
+        return NextResponse.json({ error: 'Validation error', details: parsed.error.format() }, { status: 400 });
+      }
+      return NextResponse.json(parsed.data, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const openai = getOpenAIClient();
 
-    // Whisper transcription with slight domain prompt (Asahikawa)
+    // Whisper transcription without prompt to avoid hallucination on short audio
     const transcription = await openai.audio.transcriptions.create({
       file: audio,
       model: 'whisper-1',
       temperature: 0.1,
-      // Domain hints: Asahikawa, Asahiyama Zoo, Hokkaido, ramen, sightseeing
-      prompt: '旭川, 旭山動物園, 北海道, ラーメン, 観光',
+      // Note: prompt removed to prevent hallucination of prompt text on silent/short recordings
     } as any);
 
-    const text = (transcription as any)?.text || '';
+    const text = (transcription as any)?.text?.trim() || '';
+    
+    // Validate transcription result
+    if (!text || text.length < 2) {
+      return NextResponse.json({ error: '音声を認識できませんでした。もう一度はっきり話してください。' }, { status: 400 });
+    }
+    
     // Heuristic language detect (ja vs en)
     const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(text);
     const lang = (hasJapanese ? 'ja' : 'en') as 'ja' | 'en';

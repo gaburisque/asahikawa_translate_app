@@ -6,15 +6,29 @@ const inputSchema = z.object({ text: z.string(), lang: z.enum(['ja', 'en']) });
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'Server misconfigured: OPENAI_API_KEY not set' }, { status: 500 });
-    }
     const json = await req.json().catch(() => ({}));
     const parsed = inputSchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json({ error: 'Validation error', details: parsed.error.format() }, { status: 400 });
     }
     const { text, lang } = parsed.data;
+
+    // Demo mode: return silent audio (1 sec of silence as mp3)
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'demo') {
+      // Minimal valid MP3 (silent, ~0.3s)
+      const silentMp3 = Buffer.from(
+        'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhAC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAA4T0ESmkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/7UAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
+        'base64'
+      );
+      return new NextResponse(silentMp3, {
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': silentMp3.length.toString(),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
 
     const openai = getOpenAIClient();
 

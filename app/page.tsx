@@ -91,8 +91,21 @@ export default function Home() {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         const kb = (blob.size / 1024).toFixed(1);
         const sec = (lastRecordingMsRef.current / 1000).toFixed(1);
+        console.log('Recorded blob', { sizeBytes: blob.size, type: blob.type, durationMs: lastRecordingMsRef.current });
+        
+        // Validate recording length and size
+        if (lastRecordingMsRef.current < 500) {
+          setError('録音時間が短すぎます。もう一度お試しください（最低0.5秒）。');
+          setStatus('error');
+          return;
+        }
+        if (blob.size < 1024) {
+          setError('録音データが小さすぎます。マイクに向かって話してください。');
+          setStatus('error');
+          return;
+        }
+        
         setSubtitle(`録音: ${sec}秒 / ${kb}KB`);
-        console.log('Recorded blob', { sizeBytes: blob.size, type: blob.type });
         try {
           const url = URL.createObjectURL(blob);
           setPreviewUrl(url);
