@@ -1,3 +1,4 @@
+e
 // Network-first Service Worker
 const CACHE_NAME = 'avt-v1';
 const STATIC_CACHE = ['/', '/manifest.webmanifest', '/icon.png'];
