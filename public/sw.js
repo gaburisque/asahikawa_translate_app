@@ -1,5 +1,5 @@
 // Enhanced Network-first Service Worker with offline fallback
-const CACHE_NAME = 'avt-v2';
+const CACHE_NAME = 'avt-v3';
 const STATIC_CACHE = [
   '/',
   '/manifest.webmanifest',

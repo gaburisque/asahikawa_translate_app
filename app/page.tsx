@@ -123,6 +123,26 @@ export default function Home() {
       setSubtitle('');
       if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
       markStart('e2e');
+      
+      // Unlock AudioContext on first user interaction
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      if (!audioUnlockedRef.current) {
+        try {
+          const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
+          const source = audioContextRef.current.createBufferSource();
+          source.buffer = buffer;
+          source.connect(audioContextRef.current.destination);
+          source.start(0);
+          audioUnlockedRef.current = true;
+        } catch (e) {
+          console.warn('AudioContext unlock failed:', e);
+        }
+      }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -294,8 +314,14 @@ export default function Home() {
       // TTS (if auto-play is enabled)
       if (autoTTS) {
         markStart('tts');
-        await playTTS(trData.text, trData.lang, ttsSpeed);
-        markEnd('tts');
+        try {
+          await playTTS(trData.text, trData.lang, ttsSpeed);
+        } catch (ttsErr) {
+          console.warn('TTS playback failed:', ttsErr);
+          setToast('音声再生に失敗しました');
+        } finally {
+          markEnd('tts');
+        }
       }
 
       markEnd('e2e');
@@ -308,33 +334,71 @@ export default function Home() {
       } else {
         setError(err?.message || '処理に失敗しました。ネットワークを確認してください。');
       }
+      markEnd('e2e');
       setStatus('error');
+    } finally {
+      pointerActiveRef.current = false;
     }
   };
 
   const playTTS = async (text: string, lang: 'ja' | 'en', speed: number = 1.0): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = lang === 'ja' ? 'ja-JP' : 'en-US';
-        utterance.rate = speed;
-        utterance.onend = () => resolve();
-        utterance.onerror = async (err) => {
-          console.warn('speechSynthesis failed, falling back to API or Web Audio:', err);
-          try {
-            await playTTSWithWebAudio(text, lang);
-            resolve();
-          } catch (e) {
-            console.error('Web Audio TTS also failed:', e);
-            reject(e);
-          }
-        };
-        setStatus('playing');
-        window.speechSynthesis.speak(utterance);
-      } else {
-        playTTSWithWebAudio(text, lang).then(resolve).catch(reject);
+    // iOS detection
+    const isIOS = typeof navigator !== 'undefined' && /iP(hone|ad|od)/.test(navigator.userAgent);
+    
+    try {
+      setStatus('playing');
+      
+      // iOS always uses API
+      if (isIOS) {
+        await playTTSWithWebAudio(text, lang);
+        return;
       }
-    });
+      
+      // Non-iOS: try speechSynthesis with 7s safety timer
+      if ('speechSynthesis' in window) {
+        await new Promise<void>((resolve, reject) => {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = lang === 'ja' ? 'ja-JP' : 'en-US';
+          utterance.rate = speed;
+          
+          let ended = false;
+          const safetyTimer = setTimeout(() => {
+            if (!ended) {
+              ended = true;
+              window.speechSynthesis.cancel();
+              reject(new Error('speechSynthesis timeout'));
+            }
+          }, 7000);
+          
+          utterance.onend = () => {
+            if (!ended) {
+              ended = true;
+              clearTimeout(safetyTimer);
+              resolve();
+            }
+          };
+          
+          utterance.onerror = (err) => {
+            if (!ended) {
+              ended = true;
+              clearTimeout(safetyTimer);
+              reject(err);
+            }
+          };
+          
+          window.speechSynthesis.speak(utterance);
+        });
+      } else {
+        // No speechSynthesis available
+        await playTTSWithWebAudio(text, lang);
+      }
+    } catch (err) {
+      // Fallback to API on any error
+      console.warn('Primary TTS failed, using API fallback:', err);
+      await playTTSWithWebAudio(text, lang);
+    } finally {
+      setStatus('idle');
+    }
   };
 
   const playTTSWithWebAudio = async (text: string, lang: 'ja' | 'en'): Promise<void> => {
@@ -343,6 +407,7 @@ export default function Home() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, lang }),
       signal: AbortSignal.timeout(8000),
+      cache: 'no-store',
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -351,35 +416,47 @@ export default function Home() {
     const audioBlob = await res.blob();
     const arrayBuffer = await audioBlob.arrayBuffer();
 
-    // Try HTMLAudioElement first
+    // Ensure AudioContext is unlocked
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = audioContextRef.current;
+    
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    // iOS detection for specific handling
+    const isIOS = typeof navigator !== 'undefined' && /iP(hone|ad|od)/.test(navigator.userAgent);
+
+    // Try HTMLAudioElement first (better for iOS)
+    if (isIOS) {
+      try {
+        const url = URL.createObjectURL(audioBlob);
+        const audio = new Audio(url);
+        audio.setAttribute('playsinline', '');
+        audio.preload = 'auto';
+        audioRef.current = audio;
+
+        return new Promise((resolve, reject) => {
+          audio.onended = () => { 
+            URL.revokeObjectURL(url); 
+            resolve(); 
+          };
+          audio.onerror = (e) => {
+            URL.revokeObjectURL(url);
+            reject(e);
+          };
+          audio.play().catch(reject);
+        });
+      } catch (htmlAudioError) {
+        console.warn('HTMLAudioElement failed on iOS, using Web Audio API:', htmlAudioError);
+        // Continue to Web Audio API fallback below
+      }
+    }
+
+    // Web Audio API (for non-iOS or iOS fallback)
     try {
-      const url = URL.createObjectURL(audioBlob);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-
-      return new Promise((resolve, reject) => {
-        audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-        audio.onerror = (e) => {
-          URL.revokeObjectURL(url);
-          console.warn('HTMLAudioElement.play() failed, trying Web Audio API');
-          reject(e);
-        };
-        setStatus('playing');
-        audio.play().catch(reject);
-      });
-    } catch (htmlAudioError) {
-      console.warn('HTMLAudioElement failed, using Web Audio API:', htmlAudioError);
-
-      // Fallback to Web Audio API (decodeAudioData + bufferSource)
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext();
-      }
-      const ctx = audioContextRef.current;
-
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
@@ -387,9 +464,11 @@ export default function Home() {
 
       return new Promise((resolve) => {
         source.onended = () => resolve();
-        setStatus('playing');
         source.start(0);
       });
+    } catch (decodeError) {
+      console.error('Web Audio API decode failed:', decodeError);
+      throw decodeError;
     }
   };
 
