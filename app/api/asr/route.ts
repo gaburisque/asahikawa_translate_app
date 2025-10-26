@@ -47,6 +47,34 @@ export async function POST(req: NextRequest) {
     if (!text || text.length < 2) {
       return NextResponse.json({ error: '音声を認識できませんでした。もう一度はっきり話してください。' }, { status: 400 });
     }
+
+    // Filter out known hallucination phrases from Whisper API
+    const blockedPhrases = [
+      'MBCニュースのキム・ジェギョンです。',
+      'MBCニュース',
+      'キム・ジェギョン',
+      'ご視聴ありがとうございました',
+      'Thank you for watching',
+      'Subscribe to our channel',
+      'ご視聴ありがとう',
+      'チャンネル登録',
+      '字幕',
+      'Subtitle',
+    ];
+
+    const textLower = text.toLowerCase();
+    const isBlockedPhrase = blockedPhrases.some(phrase => {
+      const phraseLower = phrase.toLowerCase();
+      // Exact match or very high similarity
+      return text === phrase || 
+             textLower === phraseLower ||
+             (text.includes(phrase) && text.length < phrase.length + 5);
+    });
+
+    if (isBlockedPhrase) {
+      console.warn('[ASR] Blocked hallucination phrase:', text);
+      return NextResponse.json({ error: '音声を認識できませんでした。もう一度はっきり話してください。' }, { status: 400 });
+    }
     
     // Heuristic language detect (ja vs en)
     const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(text);

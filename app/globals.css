@@ -17,3 +17,140 @@
 
 .animate-micro-pulse { animation: micro-pulse 2.5s ease-in-out infinite; }
 
+/* 3D Recording Button */
+.btn-3d-mic {
+  position: relative;
+  border-radius: 50%;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  
+  /* Base gradient */
+  background: radial-gradient(circle at 30% 30%, #7CC7FF 0%, #8AA9FF 40%, #B69CFF 100%);
+  
+  /* Layered shadows for depth */
+  box-shadow: 
+    0 0 60px rgba(124, 199, 255, 0.4),
+    0 8px 32px rgba(124, 199, 255, 0.3),
+    inset 0 -4px 12px rgba(0, 0, 0, 0.2),
+    inset 0 2px 8px rgba(255, 255, 255, 0.3);
+}
+
+.btn-3d-mic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.btn-3d-mic::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+.btn-3d-mic:hover:not(:disabled) {
+  transform: scale(1.02);
+  box-shadow: 
+    0 0 80px rgba(124, 199, 255, 0.5),
+    0 12px 40px rgba(124, 199, 255, 0.4),
+    inset 0 -4px 12px rgba(0, 0, 0, 0.2),
+    inset 0 2px 8px rgba(255, 255, 255, 0.4);
+}
+
+.btn-3d-mic:active:not(:disabled),
+.btn-3d-mic.recording {
+  transform: scale(0.98) translateY(2px);
+  box-shadow: 
+    0 0 40px rgba(124, 199, 255, 0.6),
+    0 4px 16px rgba(124, 199, 255, 0.4),
+    inset 0 -2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-3d-mic.recording {
+  background: radial-gradient(circle at 30% 30%, #60A5FA 0%, #7C83FA 40%, #A78BFA 100%);
+  box-shadow: 
+    0 0 80px rgba(96, 165, 250, 0.7),
+    0 8px 32px rgba(96, 165, 250, 0.5),
+    inset 0 -2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-3d-mic {
+    transition: none;
+  }
+  .animate-micro-pulse {
+    animation: none;
+  }
+}
+
+/* Optical centering for text with punctuation */
+.text-optical-center {
+  text-wrap: balance;
+  padding-left: 1ch;
+  padding-right: 1ch;
+}
+
+/* Toast fade-in animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes slideHint {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(8px); }
+}
+
+/* Recording progress ring animation */
+@keyframes recording-progress {
+  from {
+    stroke-dashoffset: 289;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.recording-ring {
+  stroke-dasharray: 289;
+  stroke-dashoffset: 289;
+}
+
+.recording-ring.active {
+  animation: recording-progress 5s linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes slideHint {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(2px); }
+  }
+
+  .recording-ring.active {
+    animation-duration: 0.01ms;
+  }
+
+  /* Reduce all transition durations */
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

@@ -1,0 +1,6 @@
+この位置に添付画像を配置してください。
+ファイル名: hero-mic.png
+配置場所: /Users/wadaseima/projects/hirosanprojects/public/hero-mic.png
+
+実装では <Image src="/hero-mic.png" /> として参照します。
+
