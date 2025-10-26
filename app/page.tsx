@@ -70,7 +70,7 @@ export default function Home() {
       let chosen: string | undefined;
       if (typeof MediaRecorder !== 'undefined' && 'isTypeSupported' in MediaRecorder) {
         for (const c of candidates) {
-          // @ts-expect-error: Safari型定義差異
+          
           if (MediaRecorder.isTypeSupported?.(c)) { chosen = c; break; }
         }
       }
