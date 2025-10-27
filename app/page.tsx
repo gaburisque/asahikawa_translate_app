@@ -136,6 +136,55 @@ export default function Home() {
     };
   }, []);
 
+  // iOS touchstart with passive: false for preventDefault
+  // Registered once on mount, checks button disabled state directly
+  useEffect(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+
+    const handleTouchStartNative = (e: TouchEvent) => {
+      e.preventDefault(); // Prevent iOS scroll/zoom
+      console.log('📱 Native touchstart (passive: false)');
+      
+      // Reset flag defensively
+      touchActiveRef.current = false;
+      
+      // Check button disabled state directly (updated by React)
+      if (button.disabled || pointerActiveRef.current) {
+        console.log('📱 Native touchstart blocked (disabled or pointer active)');
+        return;
+      }
+
+      touchActiveRef.current = true;
+      
+      const touch = e.touches[0];
+      if (touch) {
+        startPosRef.current = { x: touch.clientX, y: touch.clientY };
+        setSlideDistance(0);
+        setIsCancelling(false);
+        startRecording();
+      }
+    };
+
+    // Fallback: handle visibility change to stop recording if tab becomes hidden
+    const handleVisibilityChangeRecording = () => {
+      if (document.visibilityState === 'hidden' && pointerActiveRef.current) {
+        console.log('⚠️ Tab hidden during recording - force stop');
+        stopRecording();
+        setStatus('idle');
+      }
+    };
+
+    // Add native listener with passive: false
+    button.addEventListener('touchstart', handleTouchStartNative, { passive: false });
+    document.addEventListener('visibilitychange', handleVisibilityChangeRecording);
+
+    return () => {
+      button.removeEventListener('touchstart', handleTouchStartNative);
+      document.removeEventListener('visibilitychange', handleVisibilityChangeRecording);
+    };
+  }, []); // Register once on mount
+
   const startRecording = async (e?: React.PointerEvent) => {
     e?.preventDefault();
     
@@ -184,8 +233,37 @@ export default function Home() {
       }
 
       console.log('🎤 Requesting microphone access...');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log('✅ Microphone access granted');
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('✅ Microphone access granted');
+      } catch (mediaError: any) {
+        console.error('❌ getUserMedia failed:', mediaError);
+        pointerActiveRef.current = false;
+        touchActiveRef.current = false;
+        
+        // Specific error handling for iOS
+        if (mediaError.name === 'NotAllowedError') {
+          setError('マイクの使用が許可されていません。設定 > Safari > カメラとマイク を確認してください。');
+        } else if (mediaError.name === 'NotFoundError') {
+          setError('マイクが見つかりません。デバイスにマイクが接続されているか確認してください。');
+        } else if (mediaError.name === 'NotReadableError') {
+          setError('マイクが使用中です。他のアプリを閉じてから再試行してください。');
+        } else if (mediaError.name === 'AbortError') {
+          setError('マイクへのアクセスが中断されました。もう一度お試しください。');
+        } else if (mediaError.name === 'SecurityError') {
+          setError('HTTPS接続が必要です。安全な接続で再試行してください。');
+        } else {
+          setError(`マイクエラー: ${mediaError.message || '不明なエラー'}`);
+        }
+        setStatus('error');
+        
+        if (safetyTimerRef.current) {
+          clearTimeout(safetyTimerRef.current);
+          safetyTimerRef.current = null;
+        }
+        return;
+      }
 
       // Setup volume analyzer
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -706,37 +784,8 @@ export default function Home() {
     startRecording();
   };
 
-  // iOS Safari touch event support
-  const handleTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    
-    // ✅ 防御的：最初にフラグをリセット（前回の残骸を削除）
-    touchActiveRef.current = false;
-    
-    console.log('📱 TouchStart fired', { 
-      isDisabled, 
-      isRecording, 
-      pointerActive: pointerActiveRef.current,
-      status 
-    });
-    
-    // Check conditions BEFORE setting touchActiveRef
-    if (isDisabled || isRecording || pointerActiveRef.current) {
-      console.log('📱 TouchStart blocked');
-      return;
-    }
-
-    // Only set touchActiveRef if we're actually starting recording
-    touchActiveRef.current = true;
-    
-    const touch = e.touches[0];
-    startPosRef.current = { x: touch.clientX, y: touch.clientY };
-    setSlideDistance(0);
-    setIsCancelling(false);
-    
-    console.log('📱 TouchStart calling startRecording');
-    startRecording();
-  };
+  // Note: Native touchstart with passive: false is registered in useEffect above
+  // for iOS preventDefault support
 
   const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!isRecording || !startPosRef.current) return;
@@ -756,6 +805,8 @@ export default function Home() {
   };
 
   const handlePointerUp = () => {
+    touchActiveRef.current = false;
+    console.log('🔵 PointerUp fired', { isRecording });
     if (!isRecording) return;
 
     // Long press mode: Stop or cancel on pointer up
@@ -768,6 +819,31 @@ export default function Home() {
     startPosRef.current = null;
     setSlideDistance(0);
     setIsCancelling(false);
+  };
+
+  // iOS/Android: Handle pointer cancel (force stop recording)
+  const handlePointerCancel = () => {
+    console.log('🔵 PointerCancel fired - force stop');
+    touchActiveRef.current = false;
+    pointerActiveRef.current = false;
+    if (isRecording) {
+      stopRecording();
+      setStatus('idle');
+    }
+    startPosRef.current = null;
+    setSlideDistance(0);
+    setIsCancelling(false);
+  };
+
+  // Fallback: Click handler for browsers with poor pointer event support
+  const handleClickFallback = () => {
+    // Only handle if no other event handled it (should rarely trigger)
+    if (touchActiveRef.current || pointerActiveRef.current) {
+      console.log('🖱️ Click skipped (already handled)');
+      return;
+    }
+    console.log('🖱️ Click fallback fired (no-op for long-press mode)');
+    // For long-press mode, click alone doesn't start recording
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLButtonElement>) => {
@@ -927,9 +1003,10 @@ export default function Home() {
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
-                onTouchStart={handleTouchStart}
+                onPointerCancel={handlePointerCancel}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
+                onClick={handleClickFallback}
                 disabled={isDisabled}
                 className={`btn-3d-mic ${isRecording ? 'recording' : ''} ${isCancelling ? 'opacity-50' : ''} ${status === 'idle' && !isRecording ? 'animate-micro-pulse' : ''} relative z-10 w-full h-full flex items-center justify-center text-white transition-all duration-200 ${isProcessing ? 'cursor-not-allowed' : ''}`}
                 style={{
