@@ -58,6 +58,7 @@ export default function Home() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const volumeRafRef = useRef<number | null>(null);
   const recordingStartTimeRef = useRef<number>(0);
+  const safetyTimerRef = useRef<number | null>(null);
   
   const [volumeLevel, setVolumeLevel] = useState(0);
 
@@ -82,18 +83,26 @@ export default function Home() {
         .catch((err) => console.error('SW registration failed:', err));
     }
 
-    // Audio unlock on first user interaction
+    // Audio unlock on first user interaction (iOS compatible)
     const unlockAudio = () => {
       if (!audioUnlockedRef.current && typeof AudioContext !== 'undefined') {
         const ctx = new AudioContext();
         audioContextRef.current = ctx;
         ctx.resume().then(() => {
+          // Play silent buffer to unlock iOS
+          const buffer = ctx.createBuffer(1, 1, 22050);
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start(0);
           audioUnlockedRef.current = true;
-          console.log('✅ AudioContext unlocked');
+        }).catch(() => {
+          // Ignore unlock errors
         });
       }
     };
-    document.addEventListener('pointerdown', unlockAudio, { once: true });
+    document.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
 
     // Handle visibility change (resume suspended AudioContext)
     const handleVisibilityChange = () => {
@@ -226,6 +235,16 @@ export default function Home() {
       setRecordingTime(0);
       recordingStartTimeRef.current = Date.now();
 
+      // Safety timer: force stop after 10s if onstop doesn't fire
+      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = window.setTimeout(() => {
+        if (pointerActiveRef.current || status === 'recording') {
+          stopRecording();
+          setStatus('idle');
+          pointerActiveRef.current = false;
+        }
+      }, 10000);
+
       let time = 0;
       recordingTimerRef.current = window.setInterval(() => {
         time += 100;
@@ -237,11 +256,19 @@ export default function Home() {
       setError('録音の開始に失敗しました。マイクへのアクセスを許可してください。');
       setStatus('error');
       pointerActiveRef.current = false;
+      if (safetyTimerRef.current) {
+        clearTimeout(safetyTimerRef.current);
+        safetyTimerRef.current = null;
+      }
     }
   };
 
   const stopRecording = () => {
     if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
+    if (safetyTimerRef.current) {
+      clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -338,7 +365,26 @@ export default function Home() {
       markEnd('e2e');
       setStatus('error');
     } finally {
+      // Ensure state recovery
       pointerActiveRef.current = false;
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      if (safetyTimerRef.current) {
+        clearTimeout(safetyTimerRef.current);
+        safetyTimerRef.current = null;
+      }
+      if (volumeRafRef.current) {
+        cancelAnimationFrame(volumeRafRef.current);
+        volumeRafRef.current = null;
+      }
+      setVolumeLevel(0);
+      // Ensure idle status after any error/processing
+      if (status !== 'idle' && status !== 'playing') {
+        setTimeout(() => setStatus('idle'), 100);
+      }
     }
   };
 
@@ -347,6 +393,11 @@ export default function Home() {
     const isIOS = typeof navigator !== 'undefined' && /iP(hone|ad|od)/.test(navigator.userAgent);
     
     try {
+      // Ensure AudioContext is resumed before playback
+      if (audioContextRef.current?.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      
       setStatus('playing');
       
       // iOS always uses API
@@ -688,6 +739,10 @@ export default function Home() {
 
   const cancelRecording = () => {
     if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
+    if (safetyTimerRef.current) {
+      clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       // Stop without processing
       const stream = mediaRecorderRef.current.stream;
@@ -763,7 +818,11 @@ export default function Home() {
             <svg
               className="absolute inset-0 -rotate-90"
               viewBox="0 0 100 100"
-              style={{ opacity: isRecording ? 1 : 0, transition: 'opacity 0.3s' }}
+              style={{ 
+                opacity: isRecording ? 1 : 0, 
+                transition: 'opacity 0.3s',
+                pointerEvents: 'none'
+              }}
             >
               {/* Background ring */}
               <circle cx="50" cy="50" r="46" fill="none" stroke="#E5E7EB" strokeWidth="4" />
