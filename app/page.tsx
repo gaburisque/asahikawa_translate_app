@@ -112,6 +112,24 @@ export default function Home() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // Debug: Global reset function (accessible from Console)
+    if (typeof window !== 'undefined') {
+      (window as any).forceReset = () => {
+        console.log('🔄 Force reset all states (from Console)');
+        setStatus('idle');
+        setIsRecording(false);
+        setError('');
+        setSubtitle('');
+        pointerActiveRef.current = false;
+        touchActiveRef.current = false;
+        setVolumeLevel(0);
+        setSlideDistance(0);
+        setIsCancelling(false);
+        console.log('✅ Reset complete - try tapping button again');
+      };
+      console.log('💡 Debug: Run window.forceReset() in Console to reset all states');
+    }
+
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -545,7 +563,18 @@ export default function Home() {
     }
   };
 
-  const handleRetry = () => { setError(''); setStatus('idle'); setIsRecording(false); };
+  const handleRetry = () => {
+    console.log('🔄 Retry: resetting all states');
+    setError('');
+    setStatus('idle');
+    setIsRecording(false);
+    pointerActiveRef.current = false;
+    touchActiveRef.current = false;
+    setSubtitle('');
+    setVolumeLevel(0);
+    setSlideDistance(0);
+    setIsCancelling(false);
+  };
 
   const isProcessing = status === 'processing' || status === 'playing';
   const isDisabled = isRecording || isProcessing;
@@ -681,7 +710,15 @@ export default function Home() {
   const handleTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
     e.preventDefault();
     
-    console.log('📱 TouchStart fired', { isDisabled, isRecording, pointerActive: pointerActiveRef.current });
+    // ✅ 防御的：最初にフラグをリセット（前回の残骸を削除）
+    touchActiveRef.current = false;
+    
+    console.log('📱 TouchStart fired', { 
+      isDisabled, 
+      isRecording, 
+      pointerActive: pointerActiveRef.current,
+      status 
+    });
     
     // Check conditions BEFORE setting touchActiveRef
     if (isDisabled || isRecording || pointerActiveRef.current) {
