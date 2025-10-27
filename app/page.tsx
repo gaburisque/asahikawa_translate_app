@@ -120,13 +120,24 @@ export default function Home() {
 
   const startRecording = async (e?: React.PointerEvent) => {
     e?.preventDefault();
+    
+    console.log('🎤 startRecording called', { 
+      pointerActive: pointerActiveRef.current,
+      status,
+      isRecording
+    });
+    
     try {
       if (!navigator?.mediaDevices?.getUserMedia) {
+        console.error('❌ getUserMedia not supported');
         setError('ブラウザがマイク取得に対応していません。最新のブラウザでお試しください。');
         setStatus('error');
         return;
       }
-      if (pointerActiveRef.current) return;
+      if (pointerActiveRef.current) {
+        console.log('⚠️ Already recording (pointerActive)');
+        return;
+      }
       
       pointerActiveRef.current = true;
       setError('');
@@ -154,7 +165,9 @@ export default function Home() {
         }
       }
 
+      console.log('🎤 Requesting microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('✅ Microphone access granted');
 
       // Setup volume analyzer
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -229,11 +242,13 @@ export default function Home() {
       };
 
       // Use timeslice for smaller chunks (250ms)
+      console.log('🔴 Starting MediaRecorder...');
       mediaRecorder.start(250);
       setStatus('recording');
       setIsRecording(true);
       setRecordingTime(0);
       recordingStartTimeRef.current = Date.now();
+      console.log('✅ Recording started');
 
       // Safety timer: force stop after 10s if onstop doesn't fire
       if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
@@ -253,9 +268,11 @@ export default function Home() {
         if (time >= 5000) stopRecording();
       }, 100);
     } catch (err) {
+      console.error('❌ Recording failed:', err);
       setError('録音の開始に失敗しました。マイクへのアクセスを許可してください。');
       setStatus('error');
       pointerActiveRef.current = false;
+      touchActiveRef.current = false; // Reset touch flag on error
       if (safetyTimerRef.current) {
         clearTimeout(safetyTimerRef.current);
         safetyTimerRef.current = null;
@@ -264,6 +281,7 @@ export default function Home() {
   };
 
   const stopRecording = () => {
+    console.log('⏹️ stopRecording called');
     if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
     if (safetyTimerRef.current) {
       clearTimeout(safetyTimerRef.current);
@@ -273,6 +291,7 @@ export default function Home() {
       mediaRecorderRef.current.stop();
     }
     pointerActiveRef.current = false;
+    touchActiveRef.current = false; // Reset touch flag
     setIsRecording(false);
     
     // Stop volume monitoring
@@ -367,6 +386,7 @@ export default function Home() {
     } finally {
       // Ensure state recovery
       pointerActiveRef.current = false;
+      touchActiveRef.current = false; // Reset touch flag
       setIsRecording(false);
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
@@ -385,6 +405,7 @@ export default function Home() {
       if (status !== 'idle' && status !== 'playing') {
         setTimeout(() => setStatus('idle'), 100);
       }
+      console.log('✅ State recovery complete');
     }
   };
 
@@ -640,9 +661,15 @@ export default function Home() {
   // Slide-to-cancel handlers (Long press mode only)
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     // Skip if touch event already handled (iOS Safari compatibility)
-    if (touchActiveRef.current) return;
+    if (touchActiveRef.current) {
+      console.log('🔵 PointerDown skipped (touch active)');
+      return;
+    }
     e.preventDefault();
-    if (isDisabled || isRecording) return;
+    
+    console.log('🔵 PointerDown fired', { isDisabled, isRecording, pointerActive: pointerActiveRef.current });
+    
+    if (isDisabled || isRecording || pointerActiveRef.current) return;
 
     startPosRef.current = { x: e.clientX, y: e.clientY };
     setSlideDistance(0);
@@ -652,14 +679,25 @@ export default function Home() {
 
   // iOS Safari touch event support
   const handleTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
-    touchActiveRef.current = true;
     e.preventDefault();
-    if (isDisabled || isRecording) return;
+    
+    console.log('📱 TouchStart fired', { isDisabled, isRecording, pointerActive: pointerActiveRef.current });
+    
+    // Check conditions BEFORE setting touchActiveRef
+    if (isDisabled || isRecording || pointerActiveRef.current) {
+      console.log('📱 TouchStart blocked');
+      return;
+    }
 
+    // Only set touchActiveRef if we're actually starting recording
+    touchActiveRef.current = true;
+    
     const touch = e.touches[0];
     startPosRef.current = { x: touch.clientX, y: touch.clientY };
     setSlideDistance(0);
     setIsCancelling(false);
+    
+    console.log('📱 TouchStart calling startRecording');
     startRecording();
   };
 
@@ -715,8 +753,12 @@ export default function Home() {
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    
+    console.log('📱 TouchEnd fired', { isRecording });
+    
     if (!isRecording) {
       touchActiveRef.current = false;
+      console.log('📱 TouchEnd - not recording, resetting flag');
       return;
     }
 
@@ -731,13 +773,13 @@ export default function Home() {
     setSlideDistance(0);
     setIsCancelling(false);
     
-    // Reset touch flag after a small delay to prevent pointer events
-    setTimeout(() => {
-      touchActiveRef.current = false;
-    }, 100);
+    // Reset touch flag immediately (stopRecording/cancelRecording will also reset it)
+    // No delay needed as we're already handling the touch sequence
+    console.log('📱 TouchEnd complete');
   };
 
   const cancelRecording = () => {
+    console.log('🚫 cancelRecording called');
     if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
     if (safetyTimerRef.current) {
       clearTimeout(safetyTimerRef.current);
@@ -756,6 +798,7 @@ export default function Home() {
     
     analyserRef.current = null;
     pointerActiveRef.current = false;
+    touchActiveRef.current = false; // Reset touch flag
     chunksRef.current = [];
     setStatus('idle');
     setIsRecording(false);

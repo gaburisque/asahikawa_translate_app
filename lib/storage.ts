@@ -1,5 +1,6 @@
 // Local storage management for history, bookmarks, and settings
 
+
 export interface TranslationItem {
   id: string;
   timestamp: number;
