@@ -195,12 +195,36 @@ export default function Home() {
     });
     
     try {
+      // Detailed diagnostics for iOS
+      console.log('🔍 Environment check:', {
+        hasNavigator: typeof navigator !== 'undefined',
+        hasMediaDevices: typeof navigator?.mediaDevices !== 'undefined',
+        hasGetUserMedia: typeof navigator?.mediaDevices?.getUserMedia !== 'undefined',
+        isSecureContext: typeof window !== 'undefined' ? window.isSecureContext : 'unknown',
+        protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
+        hostname: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 100) : 'unknown'
+      });
+
       if (!navigator?.mediaDevices?.getUserMedia) {
         console.error('❌ getUserMedia not supported');
         setError('ブラウザがマイク取得に対応していません。最新のブラウザでお試しください。');
         setStatus('error');
         return;
       }
+
+      // Check for secure context (HTTPS or localhost)
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        console.error('❌ Not a secure context (HTTPS required)');
+        console.error('   Current protocol:', window.location.protocol);
+        console.error('   Current hostname:', window.location.hostname);
+        setError('⚠️ HTTPS接続が必要です。http:// ではマイクを使用できません。ngrok等でHTTPS化してください。');
+        setStatus('error');
+        pointerActiveRef.current = false;
+        touchActiveRef.current = false;
+        return;
+      }
+
       if (pointerActiveRef.current) {
         console.log('⚠️ Already recording (pointerActive)');
         return;
