@@ -45,6 +45,7 @@ export default function Home() {
   
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const touchActiveRef = useRef(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -587,10 +588,25 @@ export default function Home() {
 
   // Slide-to-cancel handlers (Long press mode only)
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    // Skip if touch event already handled (iOS Safari compatibility)
+    if (touchActiveRef.current) return;
     e.preventDefault();
     if (isDisabled || isRecording) return;
 
     startPosRef.current = { x: e.clientX, y: e.clientY };
+    setSlideDistance(0);
+    setIsCancelling(false);
+    startRecording();
+  };
+
+  // iOS Safari touch event support
+  const handleTouchStart = (e: React.TouchEvent<HTMLButtonElement>) => {
+    touchActiveRef.current = true;
+    e.preventDefault();
+    if (isDisabled || isRecording) return;
+
+    const touch = e.touches[0];
+    startPosRef.current = { x: touch.clientX, y: touch.clientY };
     setSlideDistance(0);
     setIsCancelling(false);
     startRecording();
@@ -626,6 +642,48 @@ export default function Home() {
     startPosRef.current = null;
     setSlideDistance(0);
     setIsCancelling(false);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLButtonElement>) => {
+    if (!isRecording || !startPosRef.current || e.touches.length === 0) return;
+    
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - startPosRef.current.x;
+    const deltaY = touch.clientY - startPosRef.current.y;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    setSlideDistance(distance);
+    
+    // Cancel threshold: 80px
+    if (distance > 80) {
+      setIsCancelling(true);
+    } else {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (!isRecording) {
+      touchActiveRef.current = false;
+      return;
+    }
+
+    // Long press mode: Stop or cancel on touch end
+    if (isCancelling) {
+      cancelRecording();
+    } else {
+      stopRecording();
+    }
+
+    startPosRef.current = null;
+    setSlideDistance(0);
+    setIsCancelling(false);
+    
+    // Reset touch flag after a small delay to prevent pointer events
+    setTimeout(() => {
+      touchActiveRef.current = false;
+    }, 100);
   };
 
   const cancelRecording = () => {
@@ -730,12 +788,15 @@ export default function Home() {
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
                 disabled={isDisabled}
                 className={`btn-3d-mic ${isRecording ? 'recording' : ''} ${isCancelling ? 'opacity-50' : ''} ${status === 'idle' && !isRecording ? 'animate-micro-pulse' : ''} relative z-10 w-full h-full flex items-center justify-center text-white transition-all duration-200 ${isProcessing ? 'cursor-not-allowed' : ''}`}
                 style={{
                   userSelect: 'none',
                   WebkitUserSelect: 'none',
-                  touchAction: 'pan-y',
+                  touchAction: 'manipulation',
                   WebkitTapHighlightColor: 'transparent',
                   outline: 'none',
                 }}
